@@ -5,11 +5,12 @@ from starlette import status
 
 from database import get_db
 from models import Item as ItemModel
-from schemas import Item, ItemResponse
-
+from schemas import Item, ItemResponse, SearchQuery
 
 import os
 from dotenv import load_dotenv
+
+from search import search_function_ranker
 
 load_dotenv('.env')
 
@@ -38,6 +39,7 @@ async def add_item(item: Item, db: Session = Depends(get_db)):
     print(new_item.__dict__)
     return new_item
 
+
 @app.delete('/unsell/item/')
 async def remove_item(id: dict, db: Session = Depends(get_db)):
     id = id["id"]
@@ -50,6 +52,30 @@ async def remove_item(id: dict, db: Session = Depends(get_db)):
     query.delete(synchronize_session=False)
     db.commit()
     raise HTTPException(status_code=200)
+
+
 @app.get('/all_posts/')
 async def add_post(db: Session = Depends(get_db)):
     return db.query(ItemModel).all()
+
+@app.get('/search/')
+async def search(search_query: SearchQuery, db: Session = Depends(get_db)):
+    search_query = search_query.dict()
+    query_statement = search_query["search"]
+    num_returned = search_query["num_returned"]
+    all_items = db.query(ItemModel).order_by(ItemModel.id.asc()).all()
+    keyword_list = []
+    for item in all_items:
+        keyword_list.append(item.keywords)
+    sfr = search_function_ranker.search(query_statement, keyword_list)
+    if len(sfr) < num_returned:
+        num = len(sfr)
+    else:
+        num = num_returned
+    sfr_sorted = sorted(sfr, reverse=True)
+    return_items = []
+    for i in range(num):
+        id = sfr.index(sfr_sorted[i])
+        return_items.append(all_items[id])
+
+    return return_items
