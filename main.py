@@ -1,11 +1,13 @@
+import sqlalchemy
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi_sqlalchemy import DBSessionMiddleware
 from sqlalchemy.orm import Session
 from starlette import status
 
 from database import get_db
-from models import Item as ItemModel
-from schemas import Item, ItemResponse, SearchQuery
+from jwt import get_user
+from models import Item as ItemModel, User as UserModel
+from schemas import Item, ItemResponse, SearchQuery, User
 
 import os
 from dotenv import load_dotenv
@@ -28,25 +30,25 @@ async def root():
 
 
 @app.post('/sell/item/', response_model=ItemResponse)
-async def add_item(item: Item, db: Session = Depends(get_db)):
+async def add_item(item: Item, db: Session = Depends(get_db), u=Depends(get_user)):
     item_dict = item.dict()
+    item_dict['seller'] = u.uid
     item_dict['price'] = int(float(item_dict['price']) * 100)
     new_item = ItemModel(**item_dict)
     db.add(new_item)
     db.commit()
     db.query()
     db.refresh(new_item)
-    print(new_item.__dict__)
     return new_item
 
 
 @app.delete('/unsell/item/')
-async def remove_item(id: dict, db: Session = Depends(get_db)):
+async def remove_item(id: dict, db: Session = Depends(get_db), u=Depends(get_user)):
     id = id["id"]
-    print(id)
     query = db.query(ItemModel).filter(ItemModel.id == str(id))
     original_post = query.first()
-    print(original_post)
+    if original_post.seller != u.uid:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     if original_post is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     query.delete(synchronize_session=False)
@@ -54,9 +56,10 @@ async def remove_item(id: dict, db: Session = Depends(get_db)):
     raise HTTPException(status_code=200)
 
 
-@app.get('/all_posts/')
-async def add_post(db: Session = Depends(get_db)):
+@app.get('/all_items/')
+async def all_items(db: Session = Depends(get_db)):
     return db.query(ItemModel).all()
+
 
 @app.get('/search/')
 async def search(search_query: SearchQuery, db: Session = Depends(get_db)):
@@ -77,5 +80,22 @@ async def search(search_query: SearchQuery, db: Session = Depends(get_db)):
     for i in range(num):
         id = sfr.index(sfr_sorted[i])
         return_items.append(all_items[id])
-
     return return_items
+
+
+@app.post('/signup/')
+async def add_user(user: User, db: Session=Depends(get_db)):
+    user_dict = user.dict()
+    new_item = UserModel(**user_dict)
+    db.add(new_item)
+    try:
+        db.commit()
+    except sqlalchemy.exc.IntegrityError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    db.query()
+    db.refresh(new_item)
+    return {
+        "name": user_dict["name"],
+        "email": user_dict["email"]
+    }
+

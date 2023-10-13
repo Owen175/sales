@@ -11,11 +11,23 @@ class Item(BaseModel):
     class Config:
         orm_mode = True
 
+
 class SearchQuery(BaseModel):
     num_returned: int
     search: str
 
     class Config:
         orm_mode = True
+
+
 class ItemResponse(Item):
     id: int
+
+
+class User(BaseModel):
+    name: str
+    email: str
+    password: str
+
+    class Config:
+        orm_mode = True
